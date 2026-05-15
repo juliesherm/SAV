@@ -26,10 +26,7 @@ library(tgp)
 
 #load functions
 source("sim_func_normal.R")
-source("analysisfunctions_normal.R")
 source("mcmc_norm_run.R")
-setwd("~/MATH/NSF MSGI/2022/SAVrake-master")
-
 
 #MCMC settings
 ni <- 10000   # num interations (kept)
