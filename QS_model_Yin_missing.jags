@@ -1,0 +1,113 @@
+
+data{
+#convert rake scores so that the maximum corresponds to input max
+  for (i in 1:n){
+    for (j in 1:(maxRakeScore+1)){
+      y.new[i,j] <- ifelse(j<(maxRakeScore + 1), y[i,j], sum(y[i,j:6]))
+    }
+    rake.new[i]<- ifelse(rake[i] > (maxRakeScore), maxRakeScore ,  rake[i])
+  } 
+}
+
+model{
+  
+#### rake model
+  for (i in 1:n){
+    y.new[i,] ~ dmulti(p[i,],1) 
+    for (j in 1:maxRakeScore) {
+#if biomass is zero, rake score is zero with probability 1
+#otherwise, cumulative probabilities according to inverse logistic regression
+      p.cuml[i,j] <- ifelse(biomass[i]>0,
+                    ilogit(alpha_p[j] - beta_p*log(biomass[i]) + random[siteIndex[i]]),
+                    1)
+    }
+    p.cuml[i,(maxRakeScore + 1)] <- 1
+#get (noncumulative) rake probabilities
+#again, if unoccupied (z=0) then P(Y=0)=1
+    p[i,1] <- ifelse(z[i]==1, p.cuml[i,1], 1)
+    for (j in 2:(maxRakeScore + 1)){
+      p[i,j] <- (p.cuml[i,j]-p.cuml[i,j-1])*z[i]
+    }
+  }
+  
+  
+#### Occupancy model
+#at occupied sites, quads occupied with prob psi  
+  for (i in 1:n) {
+    psi_quad[i]<- site.occ[siteIndex[i]]*psi 
+    z[i] ~ dbern(psi_quad[i]) 
+  }
+#sites are occupied with prob phi  
+  for (i in 1:numSites) {
+    site.occ[i] ~ dbern(phi)
+    tau[i] ~ dnorm(bio_intercept,precision_site)
+  }
+
+#  for (i in site.occ.idx) {
+#    tau[i] ~ dnorm(bio_intercept,precision_site)
+#  }
+
+  
+#### biomass model
+  for(i in obs_occ_idx){
+    #in occupied quadrats, follow log-normal
+    biomass[i] ~ dlnorm(tau[siteIndex[i]],precision_within)
+  }
+
+  for(i in obs_abs_idx){
+    #in non-occupied quadrats, identically zero
+    biomass[i] ~ dbern(0)
+  }
+#  for(i in no_obs_idx){
+    # here we don't know the distribution for biomass...
+    # it was not observed and the rake score is zero
+    # thus is it 0 with probability 1-prob.nodetect
+    # and follows a log normal with probability prob.nodetect
+    z[i]~dbern(prob.no.detect*site.occ[i])
+    biomass[i] ~ dlnorm(tau[siteIndex[i]],precision_within)
+#  }  
+
+##################### Priors #################################
+#### biomass priors
+  sig_site ~ dunif(0,5)
+  precision_site <- 1/(sig_site*sig_site)
+  
+  bio_intercept ~ dunif(-10, 7)
+  
+  sig_within ~ dunif(0,5)
+  precision_within <- 1/(sig_within*sig_within)
+
+#### rake priors
+  #regression coefficients
+  beta_p ~ dunif(-10, 10)
+  for (j in 1:maxRakeScore) {
+    alpha0[j] ~ dunif(-20,35)  
+  }
+  alpha_p[1:maxRakeScore] <- sort(alpha0)
+
+  #random rake effect  
+  for (i in 1:numSites) {
+    random[i] ~ dnorm(0,precision_p)
+  }
+  
+  sd_p ~ dunif(0,5)
+  precision_p <- 1/(sd_p*sd_p)
+
+#### Occupancy priors
+  phi ~ dunif(0,1)
+  psi ~ dunif(0,1)
+
+##################### Derived Parameters ######################
+exp.biomass.occquad <- exp(bio_intercept+(sig_site*sig_site+sig_within*sig_within)/2)
+exp.biomass.allquad <- exp(bio_intercept+(sig_site*sig_site+sig_within*sig_within)/2)*phi*psi
+
+#probability of nondetection (rake of zero when nonzero biomass)
+#prob of rake = 0 for all samples
+for (i in 1:n){ 
+  prob.rake0[i] <- ifelse(biomass[i]>0,ilogit(alpha_p[1] - beta_p*log(biomass[i])),1)
+}
+#prob.nodetect <- sum(z*prob.rake0)/sum(z)
+
+
+}
+
